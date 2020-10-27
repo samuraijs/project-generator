@@ -2,6 +2,7 @@
 const cp = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const readline = require('readline');
 const getRepoInfo = require('git-repo-info');
 const packageList = require('./package-list');
 
@@ -10,15 +11,10 @@ const repoInfo = getRepoInfo();
 // TODO: Get repo info
 // console.log('repoInfo: ', repoInfo);
 
-let projectName = null;
-const getSourceFile = (file) => path.join(__dirname, 'sources', file);
-const getJsonFile = (file) => JSON.parse(fs.readFileSync(file));
-const getDataFile = (file) => fs.readFileSync(file);
-const writeJsonFile = (fileName, data) =>
-  fs.writeFileSync(fileName, JSON.stringify(data, null, 2), 'utf8');
-const writeDataFile = (fileName, data) =>
-  fs.writeFileSync(fileName, data, 'utf8');
-
+const rl = readline.createInterface({
+  input: process.stdin,
+  output: process.stdout,
+});
 const getParams = () =>
   args.reduce((acc, curr) => {
     if (curr.indexOf('-') !== 0 || curr.indexOf('=') <= 0) {
@@ -28,11 +24,7 @@ const getParams = () =>
     acc[key.substring(1)] = value;
     return acc;
   }, {});
-
-console.log('====================================================');
-console.log('      Welcome to samuraijs Project Generator');
-console.log('====================================================');
-console.log();
+let projectName = null;
 const cliParams = getParams();
 
 // Get project name from cli
@@ -40,6 +32,73 @@ const cliParams = getParams();
 if (cliParams.name !== undefined) {
   projectName = cliParams.name;
 }
+const yesResponses = ['y', 'Y', 'yes'];
+const getSourceFile = (file) => path.join(__dirname, 'sources', file);
+const getJsonFile = (file) => JSON.parse(fs.readFileSync(file));
+const getDataFile = (file) => fs.readFileSync(file);
+const writeJsonFile = (fileName, data) =>
+  fs.writeFileSync(fileName, JSON.stringify(data, null, 2), 'utf8');
+const writeDataFile = (fileName, data) =>
+  fs.writeFileSync(fileName, data, 'utf8');
+
+const createPackageJson = ({
+  name,
+  dependencies,
+  devDependencies,
+  description,
+  repository,
+}) => {
+  const packageJson = getJsonFile(
+    path.join(__dirname, 'sources', 'package.json')
+  );
+  packageJson.name = name;
+  packageJson.dependencies = dependencies;
+  packageJson.devDependencies = devDependencies;
+  packageJson.description = description;
+  if (repository !== undefined) {
+    packageJson.repository = {
+      type: 'git',
+      url: `git+${repository}`,
+    };
+  }
+  writeJsonFile(`./${name}/package.json`, packageJson);
+};
+
+const getPrompt = (prompt) =>
+  new Promise((res, rej) => {
+    rl.question(prompt, (promptResponse) => {
+      res(promptResponse);
+    });
+  });
+const closeCli = () => {
+  process.exit(1);
+};
+const cloneRepo = (repository) => {
+  const clonable = repository; //repository.replace('https://', 'git@');
+  cp.execSync('git init', {
+    cwd: `./${projectName}`,
+  });
+  cp.execSync(`git remote add -t \\* -f origin ${clonable}`, {
+    cwd: `./${projectName}`,
+  });
+  cp.execSync(`git checkout main`, {
+    cwd: `./${projectName}`,
+  });
+};
+const completeScript = () => {
+  console.log('Files have been copied!');
+  console.log('Running NPM Install');
+  cp.execSync('npm install', {
+    cwd: `./${projectName}`,
+  });
+  closeCli();
+};
+
+console.log('====================================================');
+console.log('      Welcome to samuraijs Project Generator');
+console.log('====================================================');
+console.log();
+
 const rootDir = path.join(__dirname, '..');
 const scaffolding = [
   `./${projectName}/`,
@@ -54,8 +113,6 @@ const scaffolding = [
   `./${projectName}/src/components/app/app.component.js`,
   `./${projectName}/src/components/app/app.scss`,
 ];
-
-console.log('Cli in rootDir: ', rootDir);
 
 for (let i = 0, len = scaffolding.length; i < len; i++) {
   const curr = scaffolding[i];
@@ -76,23 +133,31 @@ for (let i = 0, len = scaffolding.length; i < len; i++) {
     writeDataFile(curr, data);
   }
 }
-
-/**
- * Setup package.json
- * Name, Description
- * TODO: Setup a way to add description
- * TODO: Setup way to include repo
- */
-const packageJson = getJsonFile(
-  path.join(__dirname, 'sources', 'package.json')
-);
-packageJson.name = projectName;
-packageJson.dependencies = packageList.dependencies;
-packageJson.devDependencies = packageList.devDependencies;
-writeJsonFile(`./${projectName}/package.json`, packageJson);
-
-console.log('Files have been copied!');
-console.log('Running NPM Install');
-cp.execSync('npm install', {
-  cwd: `./${projectName}`,
-});
+let addRepo = false;
+const packageJsonData = {
+  dependencies: packageList.dependencies,
+  devDependencies: packageList.devDependencies,
+  name: projectName,
+};
+getPrompt('App description: ')
+  .then((response) => {
+    packageJsonData.description = response;
+    return getPrompt('Add repository? (y/N)');
+  })
+  .then((response) => {
+    if (response !== '' && yesResponses.includes(response)) {
+      console.log('Adding repository');
+      addRepo = true;
+      return getPrompt('Repository: ');
+    } else {
+      console.log('defaulting to no');
+    }
+    createPackageJson(packageJsonData);
+    completeScript();
+  })
+  .then((response) => {
+    packageJsonData.repository = response;
+    createPackageJson(packageJsonData);
+    cloneRepo(response);
+    completeScript();
+  });
