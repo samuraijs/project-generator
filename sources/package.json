@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "webpack-dev-server --mode development",
+    "build:dev": "webpack --mode development",
+    "build:prod": "webpack --mode production"
+  },
+  "author": "Andrew Sunada <andrew@andrewsunada.com>",
+  "license": "MIT"
+}
