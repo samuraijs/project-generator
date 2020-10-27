@@ -8,8 +8,6 @@ const packageList = require('./package-list');
 
 const [, , ...args] = process.argv;
 const repoInfo = getRepoInfo();
-// TODO: Get repo info
-// console.log('repoInfo: ', repoInfo);
 
 const rl = readline.createInterface({
   input: process.stdin,
@@ -24,14 +22,9 @@ const getParams = () =>
     acc[key.substring(1)] = value;
     return acc;
   }, {});
-let projectName = null;
-const cliParams = getParams();
 
 // Get project name from cli
 // TODO: Find a way to make this happen in the current directory
-if (cliParams.name !== undefined) {
-  projectName = cliParams.name;
-}
 const yesResponses = ['y', 'Y', 'yes'];
 const getSourceFile = (file) => path.join(__dirname, 'sources', file);
 const getJsonFile = (file) => JSON.parse(fs.readFileSync(file));
@@ -73,19 +66,24 @@ const getPrompt = (prompt) =>
 const closeCli = () => {
   process.exit(1);
 };
-const cloneRepo = (repository) => {
-  const clonable = repository; //repository.replace('https://', 'git@');
+const cloneRepo = (projectName, repository, branch) => {
+  console.log('[Executing] git init');
   cp.execSync('git init', {
     cwd: `./${projectName}`,
   });
-  cp.execSync(`git remote add -t \\* -f origin ${clonable}`, {
+  console.log('[Executing]', `git remote add -t \\* -f origin ${repository}`);
+  cp.execSync(`git remote add -t \\* -f origin ${repository}`, {
     cwd: `./${projectName}`,
   });
-  cp.execSync(`git checkout main`, {
+  console.log(
+    '[Executing]',
+    `git checkout ${branch === 'main' ? '' : '-b'} ${branch}`
+  );
+  cp.execSync(`git checkout ${branch === 'main' ? '' : '-b'} ${branch}`, {
     cwd: `./${projectName}`,
   });
 };
-const completeScript = () => {
+const completeScript = (projectName) => {
   console.log('Files have been copied!');
   console.log('Running NPM Install');
   cp.execSync('npm install', {
@@ -94,70 +92,119 @@ const completeScript = () => {
   closeCli();
 };
 
+const cliParams = getParams();
+let config = null;
+if (cliParams.config !== undefined) {
+  config = getJsonFile(cliParams.config);
+}
+
 console.log('====================================================');
 console.log('      Welcome to samuraijs Project Generator');
 console.log('====================================================');
 console.log();
 
 const rootDir = path.join(__dirname, '..');
-const scaffolding = [
-  `./${projectName}/`,
-  `./${projectName}/.prettierrc`,
-  `./${projectName}/.babelrc`,
-  `./${projectName}/webpack.config.js`,
-  `./${projectName}/public/`,
-  `./${projectName}/public/index.html`,
-  `./${projectName}/src/`,
-  `./${projectName}/src/index.js`,
-  `./${projectName}/src/components/app/`,
-  `./${projectName}/src/components/app/app.component.js`,
-  `./${projectName}/src/components/app/app.scss`,
-];
+const buildScaffold = (projectName) => {
+  console.log('Scaffolding project');
+  const scaffolding = [
+    `./${projectName}/`,
+    `./${projectName}/.gitignore`,
+    `./${projectName}/.prettierrc`,
+    `./${projectName}/.babelrc`,
+    `./${projectName}/webpack.config.js`,
+    `./${projectName}/public/`,
+    `./${projectName}/public/index.html`,
+    `./${projectName}/src/`,
+    `./${projectName}/src/index.js`,
+    `./${projectName}/src/components/app/`,
+    `./${projectName}/src/components/app/app.component.js`,
+    `./${projectName}/src/components/app/app.scss`,
+  ];
 
-for (let i = 0, len = scaffolding.length; i < len; i++) {
-  const curr = scaffolding[i];
-  const pieces = curr.split('/');
-  const lastPiece = pieces[pieces.length - 1];
-  let data = null;
-  if (lastPiece === '') {
-    fs.mkdirSync(curr, { recursive: true });
-    continue;
-  } else if (
-    lastPiece.indexOf('.') === 0 ||
-    lastPiece.match(/\.json$/) !== null
-  ) {
-    data = getJsonFile(getSourceFile(lastPiece));
-    writeJsonFile(curr, data);
-  } else {
-    data = getDataFile(getSourceFile(lastPiece));
-    writeDataFile(curr, data);
+  for (let i = 0, len = scaffolding.length; i < len; i++) {
+    const curr = scaffolding[i];
+    const pieces = curr.split('/');
+    const lastPiece = pieces[pieces.length - 1].trim();
+    let data = null;
+    if (lastPiece === '') {
+      fs.mkdirSync(curr, { recursive: true });
+      continue;
+    } else if (
+      lastPiece !== '.gitignore' &&
+      (lastPiece.indexOf('.') === 0 || lastPiece.match(/\.json$/) !== null)
+    ) {
+      data = getJsonFile(getSourceFile(lastPiece));
+      writeJsonFile(curr, data);
+    } else {
+      data = getDataFile(getSourceFile(lastPiece));
+      writeDataFile(curr, data);
+    }
   }
-}
+};
+
 let addRepo = false;
 const packageJsonData = {
   dependencies: packageList.dependencies,
   devDependencies: packageList.devDependencies,
-  name: projectName,
 };
-getPrompt('App description: ')
-  .then((response) => {
-    packageJsonData.description = response;
-    return getPrompt('Add repository? (y/N)');
-  })
-  .then((response) => {
-    if (response !== '' && yesResponses.includes(response)) {
-      console.log('Adding repository');
-      addRepo = true;
-      return getPrompt('Repository: ');
-    } else {
-      console.log('defaulting to no');
-    }
-    createPackageJson(packageJsonData);
-    completeScript();
-  })
-  .then((response) => {
-    packageJsonData.repository = response;
-    createPackageJson(packageJsonData);
-    cloneRepo(response);
-    completeScript();
-  });
+if (config) {
+  const configPackageJsonData = {
+    ...packageJsonData,
+    description: config.description,
+    name: config.name,
+    keywords: config.keywords,
+  };
+  if (config.repository !== undefined) {
+    configPackageJsonData.repository = config.repository;
+  }
+  buildScaffold(configPackageJsonData.name);
+  createPackageJson(configPackageJsonData);
+  if (configPackageJsonData.repository !== undefined) {
+    cloneRepo(
+      configPackageJsonData.name,
+      configPackageJsonData.repository,
+      config.branch
+    );
+  }
+  completeScript(configPackageJsonData.name);
+} else {
+  getPrompt('App name: ')
+    .then((response) => {
+      packageJsonData.name = response;
+      return getPrompt('App description: ');
+    })
+    .then((response) => {
+      packageJsonData.description = response;
+      return getPrompt('Keywords: ');
+    })
+    .then((response) => {
+      packageJsonData.keywords = response.split(',');
+      return getPrompt('Add repository? (y/N) ');
+    })
+    .then((response) => {
+      if (response !== '' && yesResponses.includes(response)) {
+        console.log('Adding repository');
+        addRepo = true;
+        return getPrompt('Repository: ');
+      } else {
+        console.log('defaulting to no');
+      }
+      buildScaffold(packageJsonData.name);
+      createPackageJson(packageJsonData);
+      completeScript(packageJsonData.name);
+    })
+    .then((response) => {
+      packageJsonData.repository = response;
+      return getPrompt('Branch name: (main) ');
+    })
+    .then((response) => {
+      let branch = 'main';
+      if (response !== '') {
+        branch = response;
+      }
+      buildScaffold(packageJsonData.name);
+      createPackageJson(packageJsonData);
+      cloneRepo(packageJsonData.name, packageJsonData.repository, branch);
+      completeScript(packageJsonData.name);
+    });
+}
